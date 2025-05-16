@@ -18,8 +18,6 @@ AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 FROM_EMAIL = os.getenv("FROM_EMAIL")
-print("FIRECRAWL_API_KEY:", FIRECRAWL_API_KEY)
-print("ENV FILE PATH:", os.path.abspath(".env"))
 
 openai.api_key = OPENAI_API_KEY
 
@@ -42,20 +40,19 @@ def crawl_website(website):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    payload = {"url": website}
+    payload = {
+        "url": website
+    }
     response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload)
+
     print("Status Code:", response.status_code)
     print("Raw Response:", response.text)
+
     try:
-        data = response.json()
-        if data.get("success"):
-            return data["data"]["text"]  # Return just the text content
-        else:
-            print("Firecrawl error:", data.get("error", "Unknown error"))
-            return ""
+        return response.json()
     except requests.exceptions.JSONDecodeError:
         print("❌ Could not decode JSON.")
-        return ""
+        return {}
 
 def analyze_with_openai(text):
     prompt = f"""
@@ -69,7 +66,6 @@ Based on the content below, extract:
 Content:
 {text[:12000]}  # truncate to avoid token limit
 """
-
     response = openai.ChatCompletion.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
@@ -77,30 +73,10 @@ Content:
     )
     return response.choices[0].message.content.strip()
 
-def parse_analysis(analysis_text):
-    what_they_sell = who_they_target = condensed_summary = ""
-    lines = analysis_text.split("\n")
-    for line in lines:
-        if line.lower().startswith("1.") or "what they sell" in line.lower():
-            parts = line.split(":", 1)
-            if len(parts) > 1:
-                what_they_sell = parts[1].strip()
-        elif line.lower().startswith("2.") or "who they sell to" in line.lower():
-            parts = line.split(":", 1)
-            if len(parts) > 1:
-                who_they_target = parts[1].strip()
-        elif line.lower().startswith("3.") or "summary" in line.lower():
-            parts = line.split(":", 1)
-            if len(parts) > 1:
-                condensed_summary = parts[1].strip()
-    if not condensed_summary:
-        condensed_summary = analysis_text.strip()
-    return what_they_sell, who_they_target, condensed_summary
-
 def save_to_airtable(content, what_they_sell, who_they_target, summary):
     table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
     record = table.create({
-        "Scraped Content": content[:10000],  # Airtable limit
+        "Scraped Content": content[:10000],
         "What They Sell": what_they_sell,
         "Who They Target": who_they_target,
         "Condensed Summary": summary
@@ -129,10 +105,14 @@ st.title("🔎 Chris Project: Company Analyzer")
 company_name = st.text_input("Enter Company Name")
 email = st.text_input("Enter Your Email")
 
-if st.button("Run Research") and company_name and email:
+if st.button("Run Research"):
+    if not company_name or not email:
+        st.error("Please enter both company name and email.")
+        st.stop()
+
     with st.spinner("Searching for company website..."):
         website = search_company_website(company_name)
-    
+
     if not website:
         st.error("❌ Could not find website.")
         st.stop()
@@ -141,7 +121,7 @@ if st.button("Run Research") and company_name and email:
 
     with st.spinner("Scraping website..."):
         content = crawl_website(website)
-    
+
     if not content:
         st.error("❌ Failed to scrape content.")
         st.stop()
@@ -149,7 +129,15 @@ if st.button("Run Research") and company_name and email:
     with st.spinner("Analyzing content with GPT..."):
         analysis = analyze_with_openai(content)
 
-    what_they_sell, who_they_target, condensed_summary = parse_analysis(analysis)
+    # Parse analysis
+    what_they_sell = who_they_target = condensed_summary = ""
+    try:
+        lines = analysis.split("\n")
+        what_they_sell = lines[0].split(":", 1)[1].strip()
+        who_they_target = lines[1].split(":", 1)[1].strip()
+        condensed_summary = lines[2].split(":", 1)[1].strip()
+    except:
+        condensed_summary = analysis  # fallback if parsing fails
 
     with st.spinner("Saving to Airtable..."):
         airtable_id = save_to_airtable(content, what_they_sell, who_they_target, condensed_summary)
