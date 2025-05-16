@@ -45,16 +45,13 @@ def crawl_website(url):
         url = f"https://{url}"
 
     payload = {
-        "url": url,
-        "maxPagesToCrawl": 1,
-        "crawlType": "single",
-        "waitForContent": True
+        "url": url
     }
 
     try:
-        st.write("🔍 Sending payload to Firecrawl:", payload)  # DEBUG LINE
+        st.write("🔍 Sending payload to Firecrawl:", payload)  # Debug log
         response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload, timeout=30)
-        st.write("📩 Firecrawl raw response:", response.text)  # DEBUG LINE
+        st.write("📩 Firecrawl raw response:", response.text)  # Debug log
 
         response.raise_for_status()
         data = response.json()
