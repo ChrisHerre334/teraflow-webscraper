@@ -29,14 +29,21 @@ def find_company_website(company_name):
         st.error(f"Search failed: {e}")
         return None
 
+from urllib.parse import urlparse
+
 def crawl_website(url):
     """Use Firecrawl to extract website content."""
     api_key = os.getenv("FIRECRAWL_API_KEY")
-    endpoint = "https://api.firecrawl.dev/v1/scrape"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
+
+    # Validate and sanitize URL
+    parsed_url = urlparse(url)
+    if not parsed_url.scheme:
+        url = f"https://{url}"
+
     payload = {
         "url": url,
         "maxPagesToCrawl": 1,
@@ -45,17 +52,18 @@ def crawl_website(url):
     }
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
         if not data.get("success"):
             raise ValueError(data.get("error", "Unknown error"))
         return data["data"]["markdown"]
-    except requests.exceptions.Timeout:
-        st.error("🔥 Firecrawl API timed out. Try again or reduce crawl scope.")
+    except requests.exceptions.RequestException as e:
+        st.error(f"🔥 Firecrawl API error: {e}")
     except Exception as e:
         st.error(f"🔥 Firecrawl failed: {e}")
     return None
+
 
 def analyze_with_openai(text):
     """Send content to OpenAI for summarization and analysis."""
