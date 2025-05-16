@@ -34,32 +34,28 @@ def search_company_website(company_name):
     except:
         return None
 
-def crawl_website(url):
-    api_url = "https://api.firecrawl.dev/v1/scrape"
+def crawl_website(website):
+    api_key = os.getenv("FIRECRAWL_API_KEY")
     headers = {
-        "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    body = {
-        "url": url,
-        "crawl": True,
-        "maxDepth": 2,
-        "maxPages": 15,
-        "extractText": True
+
+    payload = {
+        "url": website
     }
 
-    res = requests.post(api_url, json=body, headers=headers)
+    response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload)
 
-    print("Status Code:", res.status_code)
-    print("Raw Response:", res.text)
+    print("Status Code:", response.status_code)
+    print("Raw Response:", response.text)
 
     try:
-        data = res.json()
-        pages = [p["text"] for p in data.get("pages", []) if "text" in p]
-        return "\n\n".join(pages)
-    except Exception as e:
-        print("Failed to parse JSON:", e)
-        return None
+        return response.json()
+    except requests.exceptions.JSONDecodeError:
+        print("❌ Could not decode JSON.")
+        return {}
+
 
 def analyze_with_openai(text):
     prompt = f"""
