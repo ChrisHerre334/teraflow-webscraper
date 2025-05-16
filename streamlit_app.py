@@ -12,9 +12,6 @@ load_dotenv()
 # --- API Keys & Config ---
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-
-print("FIRECRAWL_API_KEY:", FIRECRAWL_API_KEY)
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
