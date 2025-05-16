@@ -39,7 +39,7 @@ def crawl_website(url):
         "Content-Type": "application/json"
     }
 
-    # Validate and sanitize URL
+    # Ensure URL has scheme
     parsed_url = urlparse(url)
     if not parsed_url.scheme:
         url = f"https://{url}"
@@ -52,7 +52,10 @@ def crawl_website(url):
     }
 
     try:
+        st.write("🔍 Sending payload to Firecrawl:", payload)  # DEBUG LINE
         response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload, timeout=30)
+        st.write("📩 Firecrawl raw response:", response.text)  # DEBUG LINE
+
         response.raise_for_status()
         data = response.json()
         if not data.get("success"):
@@ -63,7 +66,6 @@ def crawl_website(url):
     except Exception as e:
         st.error(f"🔥 Firecrawl failed: {e}")
     return None
-
 
 def analyze_with_openai(text):
     """Send content to OpenAI for summarization and analysis."""
