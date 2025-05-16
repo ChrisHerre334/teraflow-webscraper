@@ -1,151 +1,109 @@
-import streamlit as st
-import requests
-import openai
 import os
-from pyairtable import Table
+import requests
+import streamlit as st
 from dotenv import load_dotenv
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from openai import OpenAI
 
+# Load environment variables
 load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# --- API Keys & Config ---
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
-AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
-SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-FROM_EMAIL = os.getenv("FROM_EMAIL")
+st.set_page_config(page_title="Website Analyzer", layout="wide")
+st.title("🔍 Company Website Analyzer")
 
-openai.api_key = OPENAI_API_KEY
+# === Functions ===
 
-# --- Functions ---
+def find_company_website(company_name):
+    """Use Serper.dev API to find the most likely company website from a search."""
+    api_key = os.getenv("SERPER_API_KEY")
+    endpoint = "https://google.serper.dev/search"
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    payload = {"q": company_name}
 
-def search_company_website(company_name):
-    url = "https://google.serper.dev/search"
-    headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-    data = {"q": company_name}
-    res = requests.post(url, json=data, headers=headers)
-    results = res.json()
     try:
-        return results["organic"][0]["link"]
-    except:
+        res = requests.post(endpoint, headers=headers, json=payload)
+        res.raise_for_status()
+        results = res.json()
+        return results["organic"][0]["link"] if results.get("organic") else None
+    except Exception as e:
+        st.error(f"Search failed: {e}")
         return None
 
-def crawl_website(website):
-    api_key = FIRECRAWL_API_KEY
+def crawl_website(url):
+    """Use Firecrawl to extract website content."""
+    api_key = os.getenv("FIRECRAWL_API_KEY")
+    endpoint = "https://api.firecrawl.dev/v1/scrape"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
     payload = {
-        "url": website
+        "url": url,
+        "maxPagesToCrawl": 1,
+        "crawlType": "single",
+        "waitForContent": True
     }
-    response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload)
-
-    print("Status Code:", response.status_code)
-    print("Raw Response:", response.text)
 
     try:
-        return response.json()
-    except requests.exceptions.JSONDecodeError:
-        print("❌ Could not decode JSON.")
-        return {}
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("success"):
+            raise ValueError(data.get("error", "Unknown error"))
+        return data["data"]["markdown"]
+    except requests.exceptions.Timeout:
+        st.error("🔥 Firecrawl API timed out. Try again or reduce crawl scope.")
+    except Exception as e:
+        st.error(f"🔥 Firecrawl failed: {e}")
+    return None
 
 def analyze_with_openai(text):
+    """Send content to OpenAI for summarization and analysis."""
     prompt = f"""
-You are analyzing company websites.
+You are an analyst. Based on the website markdown content below, extract and summarize the following:
+- What the company does
+- Target customers
+- Key products/services
+- Unique value propositions
+- Tone and branding style
+- Any other insights
 
-Based on the content below, extract:
-1. What the company sells (products or services).
-2. Who they sell to (target customers or ICP).
-3. A short summary combining both.
+Only use the information provided. Format your response in markdown.
 
-Content:
+CONTENT:
 {text[:12000]}  # truncate to avoid token limit
 """
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return response.choices[0].message.content.strip()
-
-def save_to_airtable(content, what_they_sell, who_they_target, summary):
-    table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
-    record = table.create({
-        "Scraped Content": content[:10000],
-        "What They Sell": what_they_sell,
-        "Who They Target": who_they_target,
-        "Condensed Summary": summary
-    })
-    return record["id"]
-
-def send_email(to_email, summary):
-    message = Mail(
-        from_email=FROM_EMAIL,
-        to_emails=to_email,
-        subject="Chris Project: Company Summary",
-        plain_text_content=f"Your research is complete:\n\n{summary}"
-    )
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        sg.send(message)
-        return True
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content
     except Exception as e:
-        print("Email error:", e)
-        return False
+        st.error(f"OpenAI analysis failed: {e}")
+        return None
 
-# --- Streamlit UI ---
+# === Streamlit UI ===
 
-st.title("🔎 Chris Project: Company Analyzer")
+company_name = st.text_input("Enter Company Name", placeholder="e.g. Tesla")
+user_email = st.text_input("Enter Your Email", placeholder="you@example.com")
 
-company_name = st.text_input("Enter Company Name")
-email = st.text_input("Enter Your Email")
+if st.button("Analyze Website") and company_name and user_email:
+    with st.spinner("🔎 Searching for company website..."):
+        website_url = find_company_website(company_name)
 
-if st.button("Run Research"):
-    if not company_name or not email:
-        st.error("Please enter both company name and email.")
-        st.stop()
+    if website_url:
+        st.success(f"Found website: {website_url}")
+        with st.spinner("📄 Crawling site content..."):
+            content = crawl_website(website_url)
 
-    with st.spinner("Searching for company website..."):
-        website = search_company_website(company_name)
+        if content:
+            with st.spinner("🧠 Analyzing website with OpenAI..."):
+                analysis = analyze_with_openai(content)
 
-    if not website:
-        st.error("❌ Could not find website.")
-        st.stop()
-
-    st.success(f"🌐 Website found: {website}")
-
-    with st.spinner("Scraping website..."):
-        content = crawl_website(website)
-
-    if not content:
-        st.error("❌ Failed to scrape content.")
-        st.stop()
-
-    with st.spinner("Analyzing content with GPT..."):
-        analysis = analyze_with_openai(content)
-
-    # Parse analysis
-    what_they_sell = who_they_target = condensed_summary = ""
-    try:
-        lines = analysis.split("\n")
-        what_they_sell = lines[0].split(":", 1)[1].strip()
-        who_they_target = lines[1].split(":", 1)[1].strip()
-        condensed_summary = lines[2].split(":", 1)[1].strip()
-    except:
-        condensed_summary = analysis  # fallback if parsing fails
-
-    with st.spinner("Saving to Airtable..."):
-        airtable_id = save_to_airtable(content, what_they_sell, who_they_target, condensed_summary)
-
-    with st.spinner("Sending email..."):
-        email_sent = send_email(email, condensed_summary)
-
-    st.success("✅ Research complete!")
-    st.write("**Summary:**", condensed_summary)
-    if email_sent:
-        st.info("📬 Summary sent to your email.")
+            if analysis:
+                st.subheader("📝 Analysis Summary")
+                st.markdown(analysis)
+    else:
+        st.error("❌ Could not find website for that company.")
