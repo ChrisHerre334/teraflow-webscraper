@@ -3,16 +3,41 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+from urllib.parse import urlparse
 
 # Load environment variables
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Streamlit app config
 st.set_page_config(page_title="Website Analyzer", layout="wide")
 st.title("🔍 Company Website Analyzer")
 
-# === Functions ===
+# === Email Function ===
+def send_email_via_sendgrid(to_email, subject, body):
+    try:
+        sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
+        from_email = os.getenv("FROM_EMAIL")
 
+        message = Mail(
+            from_email=from_email,
+            to_emails=to_email,
+            subject=subject,
+            plain_text_content=body
+        )
+        response = sg.send(message)
+        if 200 <= response.status_code < 300:
+            return True
+        else:
+            st.error(f"SendGrid error: {response.status_code} - {response.body}")
+            return False
+    except Exception as e:
+        st.error(f"Failed to send email via SendGrid: {e}")
+        return False
+
+# === Functions ===
 def find_company_website(company_name):
     """Use Serper.dev API to find the most likely company website from a search."""
     api_key = os.getenv("SERPER_API_KEY")
@@ -28,8 +53,6 @@ def find_company_website(company_name):
     except Exception as e:
         st.error(f"Search failed: {e}")
         return None
-
-from urllib.parse import urlparse
 
 def crawl_website(url):
     """Use Firecrawl to extract website content."""
@@ -111,5 +134,16 @@ if st.button("Analyze Website") and company_name and user_email:
             if analysis:
                 st.subheader("📝 Analysis Summary")
                 st.markdown(analysis)
+
+                with st.spinner("✉️ Sending summary to your email..."):
+                    email_sent = send_email_via_sendgrid(
+                        to_email=user_email,
+                        subject=f"Website Analysis Summary for {company_name}",
+                        body=analysis
+                    )
+                    if email_sent:
+                        st.success(f"✅ Summary emailed to {user_email}")
+                    else:
+                        st.error("❌ Failed to send the summary email.")
     else:
         st.error("❌ Could not find website for that company.")
