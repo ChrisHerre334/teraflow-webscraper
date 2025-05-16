@@ -12,6 +12,9 @@ load_dotenv()
 # --- API Keys & Config ---
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
+
+print("FIRECRAWL_API_KEY:", FIRECRAWL_API_KEY)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
@@ -36,20 +39,30 @@ def search_company_website(company_name):
 
 def crawl_website(url):
     api_url = "https://api.firecrawl.dev/v1/scrape"
-    headers = {"Authorization": f"Bearer {FIRECRAWL_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+        "Content-Type": "application/json"
+    }
     body = {
         "url": url,
-        "options": {
-            "crawl": True,
-            "maxDepth": 2,
-            "maxPagesToScan": 15,
-            "extractText": True
-        }
+        "crawl": True,
+        "maxDepth": 2,
+        "maxPages": 15,
+        "extractText": True
     }
+
     res = requests.post(api_url, json=body, headers=headers)
-    data = res.json()
-    pages = [p["text"] for p in data.get("pages", []) if "text" in p]
-    return "\n\n".join(pages)
+
+    print("Status Code:", res.status_code)
+    print("Raw Response:", res.text)
+
+    try:
+        data = res.json()
+        pages = [p["text"] for p in data.get("pages", []) if "text" in p]
+        return "\n\n".join(pages)
+    except Exception as e:
+        print("Failed to parse JSON:", e)
+        return None
 
 def analyze_with_openai(text):
     prompt = f"""
