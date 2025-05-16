@@ -82,7 +82,7 @@ CONTENT:
 """
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="o4-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
         )
