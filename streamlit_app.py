@@ -18,6 +18,8 @@ AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 FROM_EMAIL = os.getenv("FROM_EMAIL")
+print("FIRECRAWL_API_KEY:", os.getenv("FIRECRAWL_API_KEY"))
+print("ENV FILE PATH:", os.path.abspath(".env"))
 
 openai.api_key = OPENAI_API_KEY
 
