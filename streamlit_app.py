@@ -185,12 +185,13 @@ if st.button("Analyze Website") and company_name and user_email:
                 st.markdown(f"**Condensed Summary**\n\n{condensed_summary}")
 
                 # Save to Airtable
-                send_to_airtable({
-                    "ScrapedContent": content,
-                    "WhatTheySell": what_they_sell,
-                    "WhoTheyTarget": who_they_target,
-                    "CondensedSummary": condensed_summary,
-                })
+                send_to_airtable(
+                    content,
+                    what_they_sell,
+                    who_they_target,
+                    condensed_summary
+                )
+
 
                 with st.spinner("✉️ Sending summary to your email..."):
                     email_sent = send_email_via_sendgrid(
