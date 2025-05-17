@@ -3,166 +3,155 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-from urllib.parse import urlparse
-import re
 import json
+import re
 
 # Load environment variables
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Streamlit app config
-st.set_page_config(page_title="Website Analyzer", layout="wide")
-st.title("🔍 Company Website Analyzer")
+st.set_page_config(page_title="AI Research Assistant", layout="wide")
+st.title("🤖 Research Assistant")
 
-# === Functions ===
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Hi there! 👋 Which company would you like me to research today?"}
+    ]
+
+if "awaiting_confirmation" not in st.session_state:
+    st.session_state.awaiting_confirmation = False
+
+if "pending_website" not in st.session_state:
+    st.session_state.pending_website = None
+
+if "company_name" not in st.session_state:
+    st.session_state.company_name = None
+
+# Render chat messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# === Function Definitions ===
 
 def find_company_website(company_name):
-    api_key = os.getenv("SERPER_API_KEY")
-    endpoint = "https://google.serper.dev/search"
-    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {"q": company_name}
-
     try:
-        res = requests.post(endpoint, headers=headers, json=payload)
+        res = requests.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": os.getenv("SERPER_API_KEY")},
+            json={"q": company_name},
+            timeout=20
+        )
         res.raise_for_status()
-        results = res.json()
-        return results["organic"][0]["link"] if results.get("organic") else None
+        return res.json()["organic"][0]["link"]
     except Exception as e:
-        st.error(f"Search failed: {e}")
-        return None
+        return f"Error: {str(e)}"
 
 def crawl_website(url):
-    api_key = os.getenv("FIRECRAWL_API_KEY")
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    parsed_url = urlparse(url)
-    if not parsed_url.scheme:
-        url = f"https://{url}"
-
-    payload = {"url": url}
-
     try:
-        st.write("🔍 Sending payload to Firecrawl:", payload)
-        response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload, timeout=30)
-        st.write("📩 Firecrawl raw response:", response.text)
-
-        response.raise_for_status()
-        data = response.json()
-        if not data.get("success"):
-            raise ValueError(data.get("error", "Unknown error"))
-        return data["data"]["markdown"]
-    except requests.exceptions.RequestException as e:
-        st.error(f"🔥 Firecrawl API error: {e}")
+        response = requests.post(
+            "https://api.firecrawl.dev/v1/scrape",
+            headers={
+                "Authorization": f"Bearer {os.getenv('FIRECRAWL_API_KEY')}",
+                "Content-Type": "application/json"
+            },
+            json={"url": url},
+            timeout=45
+        )
+        return response.json()["data"]["markdown"]
     except Exception as e:
-        st.error(f"🔥 Firecrawl failed: {e}")
-    return None
+        return f"Error: {str(e)}"
 
 def analyze_with_openai(text):
     prompt = f"""
 You are a website analyst. Analyze the content below and return a JSON object with the following fields:
-- WhatTheySell: (A concise summary of what the company sells)
-- WhoTheyTarget: (A concise description of their target audience)
-- CondensedSummary: (A short, clean summary combining the first two)
-Format your response strictly as JSON.
-
+- WhatTheySell
+- WhoTheyTarget
+- CondensedSummary
 CONTENT:
 {text[:12000]}
 """
-
     try:
-        response = client.chat.completions.create(
+        result = client.chat.completions.create(
             model="o4-mini",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}]
         )
-        raw_output = response.choices[0].message.content.strip()
-
-        try:
-            return json.loads(raw_output)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", raw_output, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
-            else:
-                st.warning("⚠️ Could not parse OpenAI JSON.")
-                return {
-                    "WhatTheySell": "N/A",
-                    "WhoTheyTarget": "N/A",
-                    "CondensedSummary": raw_output.strip()[:500]
-                }
+        raw = result.choices[0].message.content.strip()
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        return json.loads(match.group(0)) if match else {"WhatTheySell": "N/A", "WhoTheyTarget": "N/A", "CondensedSummary": raw[:400]}
     except Exception as e:
-        st.error(f"OpenAI analysis failed: {e}")
-        return {
-            "WhatTheySell": "N/A",
-            "WhoTheyTarget": "N/A",
-            "CondensedSummary": "N/A"
-        }
+        return {"WhatTheySell": "N/A", "WhoTheyTarget": "N/A", "CondensedSummary": f"Error: {e}"}
 
-def send_to_n8n(company_name, user_email, scraped_content, what_they_sell, who_they_target, condensed_summary):
-    webhook_url = os.getenv("N8N_WEBHOOK_URL")
-    payload = {
-        "companyName": company_name,
-        "userEmail": user_email,
-        "scrapedContent": scraped_content[:100000],
-        "whatTheySell": what_they_sell,
-        "whoTheyTarget": who_they_target,
-        "condensedSummary": condensed_summary
-    }
-
+def trigger_n8n_webhook(payload):
     try:
-        res = requests.post(webhook_url, json=payload, timeout=10)
-        res.raise_for_status()
-        result = res.json()
-        return result.get("airtableLink", None)
+        webhook_url = os.getenv("N8N_WEBHOOK_URL")
+        response = requests.post(webhook_url, json=payload)
+        response.raise_for_status()
+        return True
     except Exception as e:
-        st.error(f"❌ Failed to send to n8n: {e}")
-        return None
+        return False
 
-# === Streamlit UI ===
+# === Chat Interaction ===
+if user_input := st.chat_input("Type here..."):
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-company_name = st.text_input("Enter Company Name", placeholder="e.g. Tesla")
-user_email = st.text_input("Enter Your Email", placeholder="you@example.com")
+    if st.session_state.awaiting_confirmation:
+        if user_input.lower().strip() in ["yes", "y"]:
+            with st.chat_message("assistant"):
+                with st.spinner("📄 Crawling website for relevant content..."):
+                    scraped = crawl_website(st.session_state.pending_website)
 
-if st.button("Analyze Website") and company_name and user_email:
-    with st.spinner("🔎 Searching for company website..."):
-        website_url = find_company_website(company_name)
+                if scraped.startswith("Error"):
+                    st.markdown(f"❌ {scraped}")
+                else:
+                    with st.spinner("🧠 Analyzing with OpenAI..."):
+                        analysis = analyze_with_openai(scraped)
 
-    if website_url:
-        st.success(f"Found website: {website_url}")
-        with st.spinner("📄 Crawling site content..."):
-            content = crawl_website(website_url)
+                    st.markdown("## 📝 Here's what I found:")
+                    st.markdown(f"**What They Sell:**\n{analysis.get('WhatTheySell', 'N/A')}")
+                    st.markdown(f"**Who They Target:**\n{analysis.get('WhoTheyTarget', 'N/A')}")
+                    st.markdown(f"**Condensed Summary:**\n{analysis.get('CondensedSummary', 'N/A')}")
 
-        if content:
-            with st.spinner("🧠 Analyzing website with OpenAI..."):
-                analysis = analyze_with_openai(content)
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": f"Here's the summary for **{st.session_state.company_name}**:\n\n**What They Sell:** {analysis.get('WhatTheySell')}\n\n**Who They Target:** {analysis.get('WhoTheyTarget')}\n\n**Summary:** {analysis.get('CondensedSummary')}"
+                    })
 
-            if analysis:
-                what_they_sell = analysis.get("WhatTheySell", "N/A")
-                who_they_target = analysis.get("WhoTheyTarget", "N/A")
-                condensed_summary = analysis.get("CondensedSummary", "N/A")
+                    with st.spinner("📤 Sending data to Airtable and emailing Chris..."):
+                        payload = {
+                            "company": st.session_state.company_name,
+                            "website": st.session_state.pending_website,
+                            "scraped": scraped[:100000],
+                            "summary": analysis.get("CondensedSummary"),
+                            "what": analysis.get("WhatTheySell"),
+                            "who": analysis.get("WhoTheyTarget")
+                        }
+                        success = trigger_n8n_webhook(payload)
+                        if success:
+                            st.success("✅ Sent to Airtable and email dispatched.")
+                        else:
+                            st.error("❌ Failed to trigger n8n workflow.")
 
-                st.subheader("📝 Analysis Summary")
-                st.markdown(f"**What They Sell**\n\n{what_they_sell}")
-                st.markdown(f"**Who They Target**\n\n{who_they_target}")
-                st.markdown(f"**Condensed Summary**\n\n{condensed_summary}")
-
-                with st.spinner("📬 Sending to Airtable & emailing summary via n8n..."):
-                    airtable_link = send_to_n8n(
-                        company_name,
-                        user_email,
-                        content,
-                        what_they_sell,
-                        who_they_target,
-                        condensed_summary
-                    )
-
-                    if airtable_link:
-                        st.success("✅ Data sent successfully.")
-                        st.markdown(f"[🔗 View Airtable Record]({airtable_link})")
-                    else:
-                        st.error("❌ Something went wrong sending data to n8n.")
+            st.session_state.awaiting_confirmation = False
+            st.session_state.pending_website = None
+            st.session_state.company_name = None
+        else:
+            st.session_state.messages.append({"role": "assistant", "content": "Okay, please enter the correct company name you'd like me to research."})
+            st.session_state.awaiting_confirmation = False
+            st.session_state.pending_website = None
+            st.session_state.company_name = None
     else:
-        st.error("❌ Could not find website for that company.")
+        # Initial input (company name)
+        st.session_state.company_name = user_input
+        with st.chat_message("assistant"):
+            with st.spinner("🔍 Searching for the company website..."):
+                website = find_company_website(user_input)
+
+            if website.startswith("Error"):
+                st.markdown(f"❌ {website}")
+            else:
+                st.session_state.awaiting_confirmation = True
+                st.session_state.pending_website = website
+                st.markdown(f"🌐 I found this website: [{website}]({website})\n\nIs this the correct site? Please reply with 'yes' or 'no'.")
