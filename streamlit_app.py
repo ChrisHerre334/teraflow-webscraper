@@ -69,30 +69,43 @@ def crawl_website(url):
     return None
 
 def analyze_with_openai(text):
-    """Send content to OpenAI for summarization and analysis."""
+    """Send content to OpenAI for summarization and structured analysis."""
     prompt = f"""
-You are an analyst. Based on the website markdown content below, extract and summarize the following:
-- What the company does
-- Target customers
-- Key products/services
-- Unique value propositions
-- Tone and branding style
-- Any other insights
-
-Only use the information provided. Format your response in markdown.
+You are a website analyst. Analyze the content below and return a JSON object with the following fields:
+- WhatTheySell: (A concise summary of what the company sells)
+- WhoTheyTarget: (A concise description of their target audience)
+- CondensedSummary: (A short, clean summary combining the first two)
+Format your response strictly as JSON.
 
 CONTENT:
-{text[:12000]}  # truncate to avoid token limit
+{text[:12000]}
 """
     try:
         response = client.chat.completions.create(
             model="o4-mini",
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.choices[0].message.content
+        raw_output = response.choices[0].message.content
+
+        import json
+        try:
+            analysis_json = json.loads(raw_output)
+        except json.JSONDecodeError:
+            st.warning("⚠️ OpenAI returned invalid JSON. Falling back to plain string.")
+            analysis_json = {
+                "WhatTheySell": "N/A",
+                "WhoTheyTarget": "N/A",
+                "CondensedSummary": raw_output.strip()[:500]
+            }
+
+        return analysis_json
     except Exception as e:
         st.error(f"OpenAI analysis failed: {e}")
-        return None
+        return {
+            "WhatTheySell": "N/A",
+            "WhoTheyTarget": "N/A",
+            "CondensedSummary": "N/A"
+        }
 
 def send_to_airtable(scraped_content, what_they_sell, who_they_target, condensed_summary):
     airtable_api_key = os.getenv("AIRTABLE_API_KEY")
@@ -160,21 +173,24 @@ if st.button("Analyze Website") and company_name and user_email:
                 analysis = analyze_with_openai(content)
 
             if analysis:
+                # If analysis is a dict (from structured JSON), extract fields
+                what_they_sell = analysis.get("WhatTheySell", "N/A")
+                who_they_target = analysis.get("WhoTheyTarget", "N/A")
+                condensed_summary = analysis.get("CondensedSummary", "N/A")
+
+                # Show in Streamlit
                 st.subheader("📝 Analysis Summary")
-                st.markdown(analysis)
+                st.markdown(f"**What They Sell**\n\n{what_they_sell}")
+                st.markdown(f"**Who They Target**\n\n{who_they_target}")
+                st.markdown(f"**Condensed Summary**\n\n{condensed_summary}")
 
-                # Extract structured parts from analysis
-                what_they_sell = re.search(r'## What the company does\s*(.*?)(?:##|$)', analysis, re.DOTALL)
-                who_they_target = re.search(r'## Target customers\s*(.*?)(?:##|$)', analysis, re.DOTALL)
-
-                what_they_sell_text = what_they_sell.group(1).strip() if what_they_sell else "N/A"
-                who_they_target_text = who_they_target.group(1).strip() if who_they_target else "N/A"
-                condensed_summary = f"{what_they_sell_text[:400]} [...] {who_they_target_text[:400]}"
-
-                send_to_airtable(scraped_content=content,
-                                 what_they_sell=what_they_sell_text,
-                                 who_they_target=who_they_target_text,
-                                 condensed_summary=condensed_summary)
+                # Save to Airtable
+                send_to_airtable({
+                    "ScrapedContent": content,
+                    "WhatTheySell": what_they_sell,
+                    "WhoTheyTarget": who_they_target,
+                    "CondensedSummary": condensed_summary,
+                })
 
                 with st.spinner("✉️ Sending summary to your email..."):
                     email_sent = send_email_via_sendgrid(
