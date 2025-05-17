@@ -6,6 +6,7 @@ from openai import OpenAI
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from urllib.parse import urlparse
+import re
 
 # Load environment variables
 load_dotenv()
@@ -15,29 +16,9 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 st.set_page_config(page_title="Website Analyzer", layout="wide")
 st.title("🔍 Company Website Analyzer")
 
-# === Email Function ===
-def send_email_via_sendgrid(to_email, subject, body):
-    try:
-        sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
-        from_email = os.getenv("FROM_EMAIL")
-
-        message = Mail(
-            from_email=from_email,
-            to_emails=to_email,
-            subject=subject,
-            plain_text_content=body
-        )
-        response = sg.send(message)
-        if 200 <= response.status_code < 300:
-            return True
-        else:
-            st.error(f"SendGrid error: {response.status_code} - {response.body}")
-            return False
-    except Exception as e:
-        st.error(f"Failed to send email via SendGrid: {e}")
-        return False
 
 # === Functions ===
+
 def find_company_website(company_name):
     """Use Serper.dev API to find the most likely company website from a search."""
     api_key = os.getenv("SERPER_API_KEY")
@@ -113,6 +94,53 @@ CONTENT:
         st.error(f"OpenAI analysis failed: {e}")
         return None
 
+def send_to_airtable(scraped_content, what_they_sell, who_they_target, condensed_summary):
+    airtable_api_key = os.getenv("AIRTABLE_API_KEY")
+    base_id = os.getenv("AIRTABLE_BASE_ID")
+    table_name = os.getenv("AIRTABLE_TABLE_NAME")
+
+    url = f"https://api.airtable.com/v0/{base_id}/{table_name}"
+    headers = {
+        "Authorization": f"Bearer {airtable_api_key}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "fields": {
+            "scraped content": scraped_content[:100000],
+            "what they sell": what_they_sell,
+            "who they target": who_they_target,
+            "condensed summary": condensed_summary
+        }
+    }
+
+    try:
+        res = requests.post(url, headers=headers, json=data)
+        res.raise_for_status()
+        st.success("✅ Sent to Airtable successfully.")
+    except Exception as e:
+        st.error(f"❌ Failed to send to Airtable: {e}")
+
+def send_email_via_sendgrid(to_email, subject, body):
+    try:
+        sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
+        from_email = os.getenv("FROM_EMAIL")
+
+        message = Mail(
+            from_email=from_email,
+            to_emails=to_email,
+            subject=subject,
+            plain_text_content=body
+        )
+        response = sg.send(message)
+        if 200 <= response.status_code < 300:
+            return True
+        else:
+            st.error(f"SendGrid error: {response.status_code} - {response.body}")
+            return False
+    except Exception as e:
+        st.error(f"Failed to send email via SendGrid: {e}")
+        return False
+
 # === Streamlit UI ===
 
 company_name = st.text_input("Enter Company Name", placeholder="e.g. Tesla")
@@ -134,6 +162,19 @@ if st.button("Analyze Website") and company_name and user_email:
             if analysis:
                 st.subheader("📝 Analysis Summary")
                 st.markdown(analysis)
+
+                # Extract structured parts from analysis
+                what_they_sell = re.search(r'## What the company does\s*(.*?)(?:##|$)', analysis, re.DOTALL)
+                who_they_target = re.search(r'## Target customers\s*(.*?)(?:##|$)', analysis, re.DOTALL)
+
+                what_they_sell_text = what_they_sell.group(1).strip() if what_they_sell else "N/A"
+                who_they_target_text = who_they_target.group(1).strip() if who_they_target else "N/A"
+                condensed_summary = f"{what_they_sell_text[:400]} [...] {who_they_target_text[:400]}"
+
+                send_to_airtable(scraped_content=content,
+                                 what_they_sell=what_they_sell_text,
+                                 who_they_target=who_they_target_text,
+                                 condensed_summary=condensed_summary)
 
                 with st.spinner("✉️ Sending summary to your email..."):
                     email_sent = send_email_via_sendgrid(
