@@ -6,7 +6,7 @@ from openai import OpenAI
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 from urllib.parse import urlparse
-import json
+import re
 
 # Load environment variables
 load_dotenv()
@@ -64,6 +64,9 @@ def crawl_website(url):
     return None
 
 def analyze_with_openai(text):
+    """Send content to OpenAI for summarization and structured analysis."""
+    import json
+
     prompt = f"""
 You are a website analyst. Analyze the content below and return a JSON object with the following fields:
 - WhatTheySell: (A concise summary of what the company sells)
@@ -74,24 +77,31 @@ Format your response strictly as JSON.
 CONTENT:
 {text[:12000]}
 """
+
     try:
         response = client.chat.completions.create(
             model="o4-mini",
             messages=[{"role": "user", "content": prompt}],
         )
-        raw_output = response.choices[0].message.content
+        raw_output = response.choices[0].message.content.strip()
 
         try:
-            analysis_json = json.loads(raw_output)
+            # Attempt direct JSON parsing first
+            return json.loads(raw_output)
         except json.JSONDecodeError:
-            st.warning("⚠️ OpenAI returned invalid JSON. Falling back to plain string.")
-            analysis_json = {
-                "WhatTheySell": "N/A",
-                "WhoTheyTarget": "N/A",
-                "CondensedSummary": raw_output.strip()[:500]
-            }
+            # Try extracting JSON via regex fallback
+            match = re.search(r"\{.*\}", raw_output, re.DOTALL)
+            if match:
+                extracted_json = match.group(0)
+                return json.loads(extracted_json)
+            else:
+                st.warning("⚠️ OpenAI returned text that could not be parsed as JSON.")
+                return {
+                    "WhatTheySell": "N/A",
+                    "WhoTheyTarget": "N/A",
+                    "CondensedSummary": raw_output.strip()[:500]
+                }
 
-        return analysis_json
     except Exception as e:
         st.error(f"OpenAI analysis failed: {e}")
         return {
