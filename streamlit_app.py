@@ -106,10 +106,10 @@ def send_to_airtable(scraped_content, what_they_sell, who_they_target, condensed
     }
     data = {
         "fields": {
-            "scraped content": scraped_content[:100000],
-            "what they sell": what_they_sell,
-            "who they target": who_they_target,
-            "condensed summary": condensed_summary
+            "ScrapedContent": scraped_content[:100000],
+            "WhatTheySell": what_they_sell,
+            "WhoTheyTarget": who_they_target,
+            "CondensedSummary": condensed_summary
         }
     }
 
