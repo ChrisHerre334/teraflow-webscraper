@@ -4,7 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Mail, Email, To, Content
 from urllib.parse import urlparse
 import json
 
@@ -131,7 +131,6 @@ def send_email_via_sendgrid(to_email, subject, analysis_dict):
         sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
         from_email = os.getenv("FROM_EMAIL")
 
-        # Format analysis dict into readable text
         body = f"""🔍 Website Analysis Summary
 
 **What They Sell**
@@ -145,10 +144,10 @@ def send_email_via_sendgrid(to_email, subject, analysis_dict):
 """
 
         message = Mail(
-            from_email=from_email,
-            to_emails=to_email,
+            from_email=Email(from_email),
+            to_emails=To(to_email),
             subject=subject,
-            plain_text_content=body
+            plain_text_content=Content("text/plain", body)
         )
 
         response = sg.send(message)
