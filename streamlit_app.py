@@ -3,10 +3,9 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
 from urllib.parse import urlparse
 import re
+import json
 
 # Load environment variables
 load_dotenv()
@@ -15,7 +14,6 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Streamlit app config
 st.set_page_config(page_title="Website Analyzer", layout="wide")
 st.title("🔍 Company Website Analyzer")
-
 
 # === Functions ===
 
@@ -64,9 +62,6 @@ def crawl_website(url):
     return None
 
 def analyze_with_openai(text):
-    """Send content to OpenAI for summarization and structured analysis."""
-    import json
-
     prompt = f"""
 You are a website analyst. Analyze the content below and return a JSON object with the following fields:
 - WhatTheySell: (A concise summary of what the company sells)
@@ -86,22 +81,18 @@ CONTENT:
         raw_output = response.choices[0].message.content.strip()
 
         try:
-            # Attempt direct JSON parsing first
             return json.loads(raw_output)
         except json.JSONDecodeError:
-            # Try extracting JSON via regex fallback
             match = re.search(r"\{.*\}", raw_output, re.DOTALL)
             if match:
-                extracted_json = match.group(0)
-                return json.loads(extracted_json)
+                return json.loads(match.group(0))
             else:
-                st.warning("⚠️ OpenAI returned text that could not be parsed as JSON.")
+                st.warning("⚠️ Could not parse OpenAI JSON.")
                 return {
                     "WhatTheySell": "N/A",
                     "WhoTheyTarget": "N/A",
                     "CondensedSummary": raw_output.strip()[:500]
                 }
-
     except Exception as e:
         st.error(f"OpenAI analysis failed: {e}")
         return {
@@ -110,65 +101,25 @@ CONTENT:
             "CondensedSummary": "N/A"
         }
 
-def send_to_airtable(scraped_content, what_they_sell, who_they_target, condensed_summary):
-    airtable_api_key = os.getenv("AIRTABLE_API_KEY")
-    base_id = os.getenv("AIRTABLE_BASE_ID")
-    table_name = os.getenv("AIRTABLE_TABLE_NAME")
-
-    url = f"https://api.airtable.com/v0/{base_id}/{table_name}"
-    headers = {
-        "Authorization": f"Bearer {airtable_api_key}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "fields": {
-            "ScrapedContent": scraped_content[:100000],
-            "WhatTheySell": what_they_sell,
-            "WhoTheyTarget": who_they_target,
-            "CondensedSummary": condensed_summary
-        }
+def send_to_n8n(company_name, user_email, scraped_content, what_they_sell, who_they_target, condensed_summary):
+    webhook_url = os.getenv("N8N_WEBHOOK_URL")
+    payload = {
+        "companyName": company_name,
+        "userEmail": user_email,
+        "scrapedContent": scraped_content[:100000],
+        "whatTheySell": what_they_sell,
+        "whoTheyTarget": who_they_target,
+        "condensedSummary": condensed_summary
     }
 
     try:
-        res = requests.post(url, headers=headers, json=data)
+        res = requests.post(webhook_url, json=payload, timeout=10)
         res.raise_for_status()
-        st.success("✅ Sent to Airtable successfully.")
+        result = res.json()
+        return result.get("airtableLink", None)
     except Exception as e:
-        st.error(f"❌ Failed to send to Airtable: {e}")
-
-def send_email_via_sendgrid(to_email, subject, analysis_dict):
-    try:
-        sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
-        from_email = os.getenv("FROM_EMAIL")
-
-        body = f"""🔍 Website Analysis Summary
-
-**What They Sell**
-{analysis_dict.get("WhatTheySell", "N/A")}
-
-**Who They Target**
-{analysis_dict.get("WhoTheyTarget", "N/A")}
-
-**Condensed Summary**
-{analysis_dict.get("CondensedSummary", "N/A")}
-"""
-
-        message = Mail(
-            from_email=Email(from_email),
-            to_emails=To(to_email),
-            subject=subject,
-            plain_text_content=Content("text/plain", body)
-        )
-
-        response = sg.send(message)
-        if 200 <= response.status_code < 300:
-            return True
-        else:
-            st.error(f"SendGrid error: {response.status_code} - {response.body}")
-            return False
-    except Exception as e:
-        st.error(f"Failed to send email via SendGrid: {e}")
-        return False
+        st.error(f"❌ Failed to send to n8n: {e}")
+        return None
 
 # === Streamlit UI ===
 
@@ -198,22 +149,20 @@ if st.button("Analyze Website") and company_name and user_email:
                 st.markdown(f"**Who They Target**\n\n{who_they_target}")
                 st.markdown(f"**Condensed Summary**\n\n{condensed_summary}")
 
-                send_to_airtable(
-                    content,
-                    what_they_sell,
-                    who_they_target,
-                    condensed_summary
-                )
-
-                with st.spinner("✉️ Sending summary to your email..."):
-                    email_sent = send_email_via_sendgrid(
-                        to_email=user_email,
-                        subject=f"Website Analysis Summary for {company_name}",
-                        analysis_dict=analysis
+                with st.spinner("📬 Sending to Airtable & emailing summary via n8n..."):
+                    airtable_link = send_to_n8n(
+                        company_name,
+                        user_email,
+                        content,
+                        what_they_sell,
+                        who_they_target,
+                        condensed_summary
                     )
-                    if email_sent:
-                        st.success(f"✅ Summary emailed to {user_email}")
+
+                    if airtable_link:
+                        st.success("✅ Data sent successfully.")
+                        st.markdown(f"[🔗 View Airtable Record]({airtable_link})")
                     else:
-                        st.error("❌ Failed to send the summary email.")
+                        st.error("❌ Something went wrong sending data to n8n.")
     else:
         st.error("❌ Could not find website for that company.")
