@@ -56,7 +56,7 @@ def crawl_website(url):
                 "Content-Type": "application/json"
             },
             json={"url": url},
-            timeout=45
+            timeout=60
         )
         return response.json()["data"]["markdown"]
     except Exception as e:
@@ -65,9 +65,9 @@ def crawl_website(url):
 def analyze_with_openai(text):
     prompt = f"""
 You are a website analyst. Analyze the content below and return a JSON object with the following fields:
-- WhatTheySell
-- WhoTheyTarget
-- CondensedSummary
+- WhatTheySell (1/2 sentences)
+- WhoTheyTarget (1/2 sentences)
+- CondensedSummary (a paragraph combining the two previous fields)
 CONTENT:
 {text[:12000]}
 """
@@ -85,10 +85,14 @@ CONTENT:
 def trigger_n8n_webhook(payload):
     try:
         webhook_url = os.getenv("N8N_WEBHOOK_URL")
-        response = requests.post(webhook_url, json=payload)
+        if not webhook_url:
+            raise ValueError("N8N_WEBHOOK_URL is not set in environment.")
+
+        response = requests.post(webhook_url, json=payload, timeout=15)
         response.raise_for_status()
         return True
     except Exception as e:
+        st.error(f"Failed to call n8n webhook: {e}")
         return False
 
 # === Chat Interaction ===
@@ -106,6 +110,7 @@ if user_input := st.chat_input("Type here..."):
                 if scraped.startswith("Error"):
                     st.markdown(f"❌ {scraped}")
                 else:
+                    st.success("✅ Your website has been successfully researched.")
                     with st.spinner("🧠 Analyzing with OpenAI..."):
                         analysis = analyze_with_openai(scraped)
 
@@ -114,23 +119,18 @@ if user_input := st.chat_input("Type here..."):
                     st.markdown(f"**Who They Target:**\n{analysis.get('WhoTheyTarget', 'N/A')}")
                     st.markdown(f"**Condensed Summary:**\n{analysis.get('CondensedSummary', 'N/A')}")
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": f"Here's the summary for **{st.session_state.company_name}**:\n\n**What They Sell:** {analysis.get('WhatTheySell')}\n\n**Who They Target:** {analysis.get('WhoTheyTarget')}\n\n**Summary:** {analysis.get('CondensedSummary')}"
-                    })
-
-                    with st.spinner("📤 Sending data to Airtable and emailing Chris..."):
+                    with st.spinner("📤 Sending data to Airtable and emailing the team..."):
                         payload = {
-                            "company": st.session_state.company_name,
+                            "companyName": st.session_state.company_name,
                             "website": st.session_state.pending_website,
-                            "scraped": scraped[:100000],
-                            "summary": analysis.get("CondensedSummary"),
-                            "what": analysis.get("WhatTheySell"),
-                            "who": analysis.get("WhoTheyTarget")
+                            "scrapedContent": scraped[:100000],
+                            "condensedSummary": analysis.get("CondensedSummary"),
+                            "whatTheySell": analysis.get("WhatTheySell"),
+                            "whoTheyTarget": analysis.get("WhoTheyTarget")
                         }
                         success = trigger_n8n_webhook(payload)
                         if success:
-                            st.success("✅ Sent to Airtable and email dispatched.")
+                            st.success("✅ Your research has been sent to Airtable and emailed to the team.\nLet me know if you'd like to research another company!")
                         else:
                             st.error("❌ Failed to trigger n8n workflow.")
 
@@ -138,7 +138,7 @@ if user_input := st.chat_input("Type here..."):
             st.session_state.pending_website = None
             st.session_state.company_name = None
         else:
-            st.session_state.messages.append({"role": "assistant", "content": "Okay, please enter the correct company name you'd like me to research."})
+            st.markdown("Okay, please enter the correct company name you'd like me to research.")
             st.session_state.awaiting_confirmation = False
             st.session_state.pending_website = None
             st.session_state.company_name = None
