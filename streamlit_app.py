@@ -6,7 +6,7 @@ from openai import OpenAI
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from urllib.parse import urlparse
-import re
+import json
 
 # Load environment variables
 load_dotenv()
@@ -20,7 +20,6 @@ st.title("🔍 Company Website Analyzer")
 # === Functions ===
 
 def find_company_website(company_name):
-    """Use Serper.dev API to find the most likely company website from a search."""
     api_key = os.getenv("SERPER_API_KEY")
     endpoint = "https://google.serper.dev/search"
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
@@ -36,26 +35,22 @@ def find_company_website(company_name):
         return None
 
 def crawl_website(url):
-    """Use Firecrawl to extract website content."""
     api_key = os.getenv("FIRECRAWL_API_KEY")
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
-    # Ensure URL has scheme
     parsed_url = urlparse(url)
     if not parsed_url.scheme:
         url = f"https://{url}"
 
-    payload = {
-        "url": url
-    }
+    payload = {"url": url}
 
     try:
-        st.write("🔍 Sending payload to Firecrawl:", payload)  # Debug log
+        st.write("🔍 Sending payload to Firecrawl:", payload)
         response = requests.post("https://api.firecrawl.dev/v1/scrape", headers=headers, json=payload, timeout=30)
-        st.write("📩 Firecrawl raw response:", response.text)  # Debug log
+        st.write("📩 Firecrawl raw response:", response.text)
 
         response.raise_for_status()
         data = response.json()
@@ -69,7 +64,6 @@ def crawl_website(url):
     return None
 
 def analyze_with_openai(text):
-    """Send content to OpenAI for summarization and structured analysis."""
     prompt = f"""
 You are a website analyst. Analyze the content below and return a JSON object with the following fields:
 - WhatTheySell: (A concise summary of what the company sells)
@@ -87,7 +81,6 @@ CONTENT:
         )
         raw_output = response.choices[0].message.content
 
-        import json
         try:
             analysis_json = json.loads(raw_output)
         except json.JSONDecodeError:
@@ -133,10 +126,23 @@ def send_to_airtable(scraped_content, what_they_sell, who_they_target, condensed
     except Exception as e:
         st.error(f"❌ Failed to send to Airtable: {e}")
 
-def send_email_via_sendgrid(to_email, subject, body):
+def send_email_via_sendgrid(to_email, subject, analysis_dict):
     try:
         sg = SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
         from_email = os.getenv("FROM_EMAIL")
+
+        # Format analysis dict into readable text
+        body = f"""🔍 Website Analysis Summary
+
+**What They Sell**
+{analysis_dict.get("WhatTheySell", "N/A")}
+
+**Who They Target**
+{analysis_dict.get("WhoTheyTarget", "N/A")}
+
+**Condensed Summary**
+{analysis_dict.get("CondensedSummary", "N/A")}
+"""
 
         message = Mail(
             from_email=from_email,
@@ -144,6 +150,7 @@ def send_email_via_sendgrid(to_email, subject, body):
             subject=subject,
             plain_text_content=body
         )
+
         response = sg.send(message)
         if 200 <= response.status_code < 300:
             return True
@@ -173,18 +180,15 @@ if st.button("Analyze Website") and company_name and user_email:
                 analysis = analyze_with_openai(content)
 
             if analysis:
-                # If analysis is a dict (from structured JSON), extract fields
                 what_they_sell = analysis.get("WhatTheySell", "N/A")
                 who_they_target = analysis.get("WhoTheyTarget", "N/A")
                 condensed_summary = analysis.get("CondensedSummary", "N/A")
 
-                # Show in Streamlit
                 st.subheader("📝 Analysis Summary")
                 st.markdown(f"**What They Sell**\n\n{what_they_sell}")
                 st.markdown(f"**Who They Target**\n\n{who_they_target}")
                 st.markdown(f"**Condensed Summary**\n\n{condensed_summary}")
 
-                # Save to Airtable
                 send_to_airtable(
                     content,
                     what_they_sell,
@@ -192,12 +196,11 @@ if st.button("Analyze Website") and company_name and user_email:
                     condensed_summary
                 )
 
-
                 with st.spinner("✉️ Sending summary to your email..."):
                     email_sent = send_email_via_sendgrid(
                         to_email=user_email,
                         subject=f"Website Analysis Summary for {company_name}",
-                        body=analysis
+                        analysis_dict=analysis
                     )
                     if email_sent:
                         st.success(f"✅ Summary emailed to {user_email}")
