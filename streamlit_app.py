@@ -45,6 +45,13 @@ st.markdown("""
         color: #721c24;
         border: 1px solid #f5c6cb;
     }
+    .url-container {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,9 +83,11 @@ for msg in st.session_state.chat_history:
             # Special handling for URL selection
             st.markdown(msg["content"])
             if msg["urls"]:
-                st.markdown("**Available URLs:**")
+                st.markdown('<div class="url-container">', unsafe_allow_html=True)
+                st.markdown("**Please select the correct URL by copying and pasting it:**")
                 for i, url in enumerate(msg["urls"], 1):
-                    st.markdown(f"{i}. `{url}`")
+                    st.code(url, language=None)
+                st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown(msg["content"])
 
@@ -102,9 +111,11 @@ if user_input := st.chat_input("What company would you like me to research?"):
                     update_chat("assistant", response["message"], urls=response["urls"])
                     st.markdown(response["message"])
                     if response["urls"]:
-                        st.markdown("**Available URLs:**")
+                        st.markdown('<div class="url-container">', unsafe_allow_html=True)
+                        st.markdown("**Please select the correct URL by copying and pasting it:**")
                         for i, url in enumerate(response["urls"], 1):
-                            st.markdown(f"{i}. `{url}`")
+                            st.code(url, language=None)
+                        st.markdown('</div>', unsafe_allow_html=True)
                 else:
                     # Regular text response
                     update_chat("assistant", response)
@@ -114,9 +125,8 @@ if user_input := st.chat_input("What company would you like me to research?"):
                 error_msg = f"❌ An error occurred: {str(e)}"
                 update_chat("assistant", error_msg)
                 st.error(error_msg)
-                
-# Sidebar with session info for debugging (optional - can be removed in production)
-with st.sidebar:
-    st.subheader("Session Debug Info")
-    session_data = get_session_state()
-    st.json(session_data)
+
+# Optional: Show session state for debugging (remove in production)
+if st.checkbox("Show Debug Info"):
+    with st.expander("Session State"):
+        st.json(get_session_state())

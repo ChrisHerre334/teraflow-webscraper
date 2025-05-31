@@ -1,9 +1,7 @@
 import os
 import requests
 import time
-from typing import Optional, List, Dict
-from urllib.parse import urljoin, urlparse
-import json
+from typing import Optional, List
 
 class WebScraper:
     """
@@ -97,4 +95,40 @@ class WebScraper:
         except Exception as e:
             print(f"Error scraping single page {url}: {e}")
         
-        return
+        return None
+    
+    def _get_crawl_pages(self, base_url: str, max_pages: int) -> List[str]:
+        """Get additional pages to crawl from the website."""
+        headers = {
+            'Authorization': f'Bearer {self.firecrawl_api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'url': base_url,
+            'limit': max_pages,
+            'scrapeOptions': {
+                'formats': ['markdown'],
+                'onlyMainContent': True
+            }
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/crawl",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success'):
+                    # Extract URLs from crawl results
+                    pages = data.get('data', [])
+                    return [page.get('metadata', {}).get('sourceURL', '') for page in pages if page.get('metadata', {}).get('sourceURL')]
+            
+        except Exception as e:
+            print(f"Error in crawl operation: {e}")
+        
+        return []

@@ -1,94 +1,67 @@
 import streamlit as st
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional, List
 
 def init_session():
-    """Initialize all session state variables."""
+    """Initialize session state variables"""
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
     
-    # Chat history
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = [
-            {
-                "role": "assistant", 
-                "content": "👋 Hello! I'm your AI research assistant. Tell me which company you'd like me to research and your email address, and I'll provide you with a comprehensive analysis.\n\nFor example: *'Research Stripe, send results to john@company.com'*"
-            }
-        ]
+    if 'current_status' not in st.session_state:
+        st.session_state.current_status = ""
     
-    # Research session data
-    session_defaults = {
-        "company_name": None,
-        "user_email": None,
-        "confirmed_url": None,
-        "candidate_urls": [],
-        "scraped_content": None,
-        "what_they_sell": None,
-        "who_they_sell_to": None,
-        "airtable_record_id": None,
-        "agent_state": "initial",
-        "current_status": None
+    if 'session_data' not in st.session_state:
+        st.session_state.session_data = {
+            'company_name': None,
+            'recipient_email': None,
+            'selected_url': None,
+            'research_completed': False,
+            'current_status': ""
+        }
+
+def update_chat(role: str, content: str, urls: Optional[List[str]] = None):
+    """Add a message to the chat history"""
+    message = {
+        "role": role,
+        "content": content,
+        "timestamp": str(pd.Timestamp.now())
     }
     
-    for key, default_value in session_defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default_value
-
-def update_chat(role: str, message: str, urls: Optional[List[str]] = None):
-    """Add a message to the chat history."""
-    chat_entry = {"role": role, "content": message}
     if urls:
-        chat_entry["urls"] = urls
-    st.session_state.chat_history.append(chat_entry)
+        message["urls"] = urls
+    
+    st.session_state.chat_history.append(message)
 
-def update_session_state(key: str, value: Any):
-    """Update a specific session state variable."""
-    st.session_state[key] = value
+def update_session_state(**kwargs):
+    """Update session state variables"""
+    for key, value in kwargs.items():
+        if key in st.session_state.session_data:
+            st.session_state.session_data[key] = value
+        
+        # Also update direct session state
+        setattr(st.session_state, key, value)
 
 def get_session_state() -> Dict[str, Any]:
-    """Get all session state data as a dictionary."""
-    session_keys = [
-        "company_name", "user_email", "confirmed_url", "candidate_urls",
-        "scraped_content", "what_they_sell", "who_they_sell_to",
-        "airtable_record_id", "agent_state", "current_status"
-    ]
-    
-    return {key: st.session_state.get(key) for key in session_keys}
+    """Get current session state"""
+    return st.session_state.session_data
 
-def reset_session():
-    """Reset the session for a new research."""
-    # Keep chat history but reset research data
-    st.session_state.chat_history = [
-        {
-            "role": "assistant", 
-            "content": "👋 Hello! I'm your AI research assistant. Tell me which company you'd like me to research and your email address, and I'll provide you with a comprehensive analysis.\n\nFor example: *'Research Stripe, send results to john@company.com'*"
-        }
-    ]
+def clear_session():
+    """Clear all session state (useful for starting over)"""
+    keys_to_keep = ['chat_history']  # Keep chat history
     
-    # Reset all research-related session variables
-    reset_keys = [
-        "company_name", "user_email", "confirmed_url", "candidate_urls",
-        "scraped_content", "what_they_sell", "who_they_sell_to",
-        "airtable_record_id", "current_status"
-    ]
+    for key in list(st.session_state.keys()):
+        if key not in keys_to_keep:
+            del st.session_state[key]
     
-    for key in reset_keys:
-        st.session_state[key] = None if key != "candidate_urls" else []
-    
-    st.session_state.agent_state = "initial"
+    init_session()
 
-def get_research_progress() -> Dict[str, bool]:
-    """Get the current progress of the research workflow."""
-    session_data = get_session_state()
-    
-    return {
-        "company_identified": bool(session_data.get("company_name")),
-        "email_provided": bool(session_data.get("user_email")),
-        "urls_found": bool(session_data.get("candidate_urls")),
-        "url_confirmed": bool(session_data.get("confirmed_url")),
-        "content_scraped": bool(session_data.get("scraped_content")),
-        "analysis_complete": bool(session_data.get("what_they_sell")),
-        "airtable_updated": bool(session_data.get("airtable_record_id"))
-    }
+def get_chat_history() -> List[Dict[str, Any]]:
+    """Get the current chat history"""
+    return st.session_state.chat_history
+
+def add_system_message(message: str):
+    """Add a system message to chat"""
+    update_chat("assistant", f"ℹ️ {message}")
 
 def is_research_complete() -> bool:
-    """Check if the research workflow is complete."""
-    progress = get_research_progress()
-    return all(progress.values())
+    """Check if research has been completed"""
+    return st.session_state.session_data.get('research_completed', False)
