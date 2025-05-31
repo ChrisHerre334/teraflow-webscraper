@@ -1,7 +1,9 @@
 import os
 import requests
 import time
-from typing import Optional, List
+from typing import Optional, List, Dict
+from urllib.parse import urljoin, urlparse
+import re
 
 class WebScraper:
     """
@@ -30,36 +32,131 @@ class WebScraper:
         try:
             print(f"Starting website scrape for: {url}")
             
-            # First, scrape the main page to get site structure
-            main_content = self._scrape_single_page(url)
-            if not main_content:
-                return None
+            # Use crawl mode to get multiple pages at once
+            crawl_result = self._crawl_website(url, max_pages)
             
-            # Get additional pages to scrape using crawl mode
-            all_content = [main_content]
-            additional_pages = self._get_crawl_pages(url, max_pages - 1)
-            
-            if additional_pages:
-                print(f"Found {len(additional_pages)} additional pages to scrape")
+            if crawl_result and len(crawl_result) > 0:
+                # Combine all content with clear page breaks
+                combined_content = []
                 
-                for page_url in additional_pages[:max_pages-1]:  # -1 because we already have main page
-                    try:
-                        page_content = self._scrape_single_page(page_url)
-                        if page_content:
-                            all_content.append(page_content)
-                        time.sleep(0.5)  # Rate limiting
-                    except Exception as e:
-                        print(f"Error scraping {page_url}: {e}")
-                        continue
+                for i, page_data in enumerate(crawl_result[:max_pages]):
+                    page_url = page_data.get('url', url)
+                    page_content = page_data.get('markdown', '')
+                    
+                    if page_content.strip():
+                        header = f"=== PAGE {i+1}: {page_url} ==="
+                        combined_content.append(f"{header}\n\n{page_content}")
+                
+                if combined_content:
+                    final_content = "\n\n---PAGE BREAK---\n\n".join(combined_content)
+                    print(f"Successfully scraped {len(combined_content)} pages")
+                    return final_content
             
-            # Combine all content
-            combined_content = "\n\n---PAGE BREAK---\n\n".join(all_content)
-            print(f"Successfully scraped {len(all_content)} pages")
-            
-            return combined_content
+            # Fallback to single page scraping if crawl fails
+            print("Crawl failed, falling back to single page scrape")
+            return self._scrape_single_page(url)
             
         except Exception as e:
             print(f"Error in website scraping: {e}")
+            return None
+    
+    def _crawl_website(self, url: str, max_pages: int) -> Optional[List[Dict]]:
+        """Use FireCrawl's crawl endpoint to get multiple pages."""
+        headers = {
+            'Authorization': f'Bearer {self.firecrawl_api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'url': url,
+            'crawlerOptions': {
+                'limit': max_pages,
+                'includes': [
+                    '*/about*',
+                    '*/products*',
+                    '*/services*',
+                    '*/solutions*',
+                    '*/features*',
+                    '*/pricing*',
+                    '*/customers*',
+                    '*/industries*',
+                    '*/company*',
+                    '*/team*'
+                ],
+                'excludes': [
+                    '*/blog*',
+                    '*/news*',
+                    '*/careers*',
+                    '*/jobs*',
+                    '*/contact*',
+                    '*/support*',
+                    '*/help*',
+                    '*/faq*',
+                    '*/terms*',
+                    '*/privacy*',
+                    '*/legal*'
+                ]
+            },
+            'pageOptions': {
+                'onlyMainContent': True,
+                'includeHtml': False,
+                'screenshot': False
+            }
+        }
+        
+        try:
+            # Start crawl job
+            response = requests.post(
+                f"{self.base_url}/crawl",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                print(f"Crawl start failed: {response.status_code} - {response.text}")
+                return None
+            
+            crawl_data = response.json()
+            job_id = crawl_data.get('jobId')
+            
+            if not job_id:
+                print("No job ID returned from crawl start")
+                return None
+            
+            # Poll for results
+            max_wait = 120  # 2 minutes max wait
+            wait_time = 0
+            
+            while wait_time < max_wait:
+                time.sleep(5)
+                wait_time += 5
+                
+                status_response = requests.get(
+                    f"{self.base_url}/crawl/status/{job_id}",
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if status_response.status_code == 200:
+                    status_data = status_response.json()
+                    status = status_data.get('status')
+                    
+                    if status == 'completed':
+                        return status_data.get('data', [])
+                    elif status == 'failed':
+                        print(f"Crawl job failed: {status_data.get('error', 'Unknown error')}")
+                        return None
+                    # Continue polling if still running
+                else:
+                    print(f"Status check failed: {status_response.status_code}")
+                    return None
+            
+            print("Crawl job timed out")
+            return None
+            
+        except Exception as e:
+            print(f"Error in crawl operation: {e}")
             return None
     
     def _scrape_single_page(self, url: str) -> Optional[str]:
@@ -71,10 +168,11 @@ class WebScraper:
         
         payload = {
             'url': url,
-            'formats': ['markdown'],
-            'includeTags': ['main', 'article', 'section', 'div'],
-            'excludeTags': ['nav', 'footer', 'header', 'aside', 'script', 'style'],
-            'onlyMainContent': True
+            'pageOptions': {
+                'onlyMainContent': True,
+                'includeHtml': False,
+                'screenshot': False
+            }
         }
         
         try:
@@ -88,7 +186,9 @@ class WebScraper:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('success') and data.get('data'):
-                    return data['data'].get('markdown', '')
+                    content = data['data'].get('markdown', '')
+                    if content:
+                        return f"=== PAGE: {url} ===\n\n{content}"
             else:
                 print(f"FireCrawl API error: {response.status_code} - {response.text}")
                 
@@ -97,38 +197,12 @@ class WebScraper:
         
         return None
     
-    def _get_crawl_pages(self, base_url: str, max_pages: int) -> List[str]:
-        """Get additional pages to crawl from the website."""
-        headers = {
-            'Authorization': f'Bearer {self.firecrawl_api_key}',
-            'Content-Type': 'application/json'
-        }
-        
-        payload = {
-            'url': base_url,
-            'limit': max_pages,
-            'scrapeOptions': {
-                'formats': ['markdown'],
-                'onlyMainContent': True
-            }
-        }
-        
+    def test_connection(self) -> bool:
+        """Test the FireCrawl API connection."""
         try:
-            response = requests.post(
-                f"{self.base_url}/crawl",
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    # Extract URLs from crawl results
-                    pages = data.get('data', [])
-                    return [page.get('metadata', {}).get('sourceURL', '') for page in pages if page.get('metadata', {}).get('sourceURL')]
-            
+            test_url = "https://example.com"
+            result = self._scrape_single_page(test_url)
+            return result is not None
         except Exception as e:
-            print(f"Error in crawl operation: {e}")
-        
-        return []
+            print(f"Connection test failed: {e}")
+            return False
