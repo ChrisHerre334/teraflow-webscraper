@@ -1,5 +1,6 @@
 import streamlit as st
 from typing import Dict, Any, Optional, List
+from datetime import datetime
 
 def init_session():
     """Initialize session state variables"""
@@ -23,7 +24,7 @@ def update_chat(role: str, content: str, urls: Optional[List[str]] = None):
     message = {
         "role": role,
         "content": content,
-        "timestamp": str(pd.Timestamp.now())
+        "timestamp": str(datetime.now())
     }
     
     if urls:

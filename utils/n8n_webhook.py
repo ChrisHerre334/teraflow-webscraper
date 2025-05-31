@@ -3,6 +3,7 @@ import requests
 import json
 from typing import Dict, Any
 import streamlit as st
+from datetime import datetime
 
 class N8NWebhook:
     def __init__(self):
@@ -37,7 +38,7 @@ class N8NWebhook:
             }
             
             # Add timestamp
-            payload['timestamp'] = str(pd.Timestamp.now())
+            payload['timestamp'] = str(datetime.now())
             
             # Make the POST request
             response = requests.post(
