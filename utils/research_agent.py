@@ -16,8 +16,6 @@ class ResearchAgent:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         self.web_scraper = WebScraper()
-        self.airtable_manager = AirtableManager()
-        self.email_sender = EmailSender()
         
         # Agent states
         self.STATES = {
