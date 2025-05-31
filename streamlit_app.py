@@ -1,48 +1,122 @@
 import streamlit as st
-
-# 🔧 Monkeypatch Streamlit to prevent torch.classes crash
-import streamlit.watcher.local_sources_watcher as lsw
-
-def safe_extract_paths(module):
-    try:
-        return list(module.__path__)
-    except Exception:
-        return []
-
-lsw.extract_paths = safe_extract_paths
-
-# Now proceed with your imports and app logic
 import os
 from dotenv import load_dotenv
-from utils.langchain_agent import run_agent_logic
-from utils.session_helpers import init_session, update_chat
 
+# Load environment variables
 load_dotenv()
 
-st.set_page_config(page_title="AI Research Assistant", layout="wide")
-st.title("🤖 Research Assistant")
+# Import our agent and utilities
+from utils.research_agent import ResearchAgent
+from utils.session_helpers import init_session, update_chat, get_session_state
 
-# Initialize session state variables
+# Configure Streamlit
+st.set_page_config(
+    page_title="AI Research Assistant", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Custom CSS for better UI
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        padding: 1rem 0;
+        margin-bottom: 2rem;
+    }
+    .status-indicator {
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        font-weight: bold;
+    }
+    .status-loading {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
+    }
+    .status-complete {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+    }
+    .status-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Main title
+st.markdown('<div class="main-header"><h1>🤖 AI Research Assistant</h1><p>Your intelligent company research companion</p></div>', unsafe_allow_html=True)
+
+# Initialize session state
 init_session()
+
+# Initialize agent
+if 'agent' not in st.session_state:
+    st.session_state.agent = ResearchAgent()
+
+# Display status indicator
+session_data = get_session_state()
+if session_data.get('current_status'):
+    status_class = "status-loading"
+    if "✅" in session_data['current_status']:
+        status_class = "status-complete"
+    elif "❌" in session_data['current_status']:
+        status_class = "status-error"
+    
+    st.markdown(f'<div class="{status_class}">{session_data["current_status"]}</div>', unsafe_allow_html=True)
 
 # Display chat history
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        if msg["role"] == "assistant" and "urls" in msg:
+            # Special handling for URL selection
+            st.markdown(msg["content"])
+            if msg["urls"]:
+                st.markdown("**Available URLs:**")
+                for i, url in enumerate(msg["urls"], 1):
+                    st.markdown(f"{i}. `{url}`")
+        else:
+            st.markdown(msg["content"])
 
 # Chat input
 if user_input := st.chat_input("What company would you like me to research?"):
+    # Add user message to chat
     update_chat("user", user_input)
+    
     with st.chat_message("user"):
         st.markdown(user_input)
 
+    # Process with agent
     with st.chat_message("assistant"):
-        with st.spinner("💬 Thinking..."):
+        with st.spinner("🤔 Processing your request..."):
             try:
-                response = run_agent_logic(user_input)
-                update_chat("assistant", response)
-                st.markdown(response)
+                response = st.session_state.agent.process_message(user_input)
+                
+                # Handle different response types
+                if isinstance(response, dict) and "urls" in response:
+                    # URL selection response
+                    update_chat("assistant", response["message"], urls=response["urls"])
+                    st.markdown(response["message"])
+                    if response["urls"]:
+                        st.markdown("**Available URLs:**")
+                        for i, url in enumerate(response["urls"], 1):
+                            st.markdown(f"{i}. `{url}`")
+                else:
+                    # Regular text response
+                    update_chat("assistant", response)
+                    st.markdown(response)
+                    
             except Exception as e:
-                error_msg = f"❌ An error occurred: {e}"
+                error_msg = f"❌ An error occurred: {str(e)}"
                 update_chat("assistant", error_msg)
                 st.error(error_msg)
+                
+# Sidebar with session info for debugging (optional - can be removed in production)
+with st.sidebar:
+    st.subheader("Session Debug Info")
+    session_data = get_session_state()
+    st.json(session_data)
