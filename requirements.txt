@@ -1,7 +1,29 @@
-streamlit
+# Core dependencies
+streamlit==1.33.0
 openai
-requests
 firecrawl-py
 python-dotenv
 pyairtable
 sendgrid
+requests
+
+# LLM + NLP utilities
+langchain==0.1.20
+langchain-openai==0.1.6
+spacy==3.7.2
+torch==2.1.2
+transformers==4.36.2
+scikit-learn
+
+# Organization name extraction (NER)
+pdfminer.six
+docx2txt
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
+
+# Optional extras for async agent support, tracing, etc.
+tqdm
+pydantic
+aiohttp
+
+# Environment and debugging helpers
+rich
