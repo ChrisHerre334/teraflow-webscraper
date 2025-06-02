@@ -267,17 +267,26 @@ Please provide a helpful and specific answer based on this information.
         """Analyze scraped content to extract key information"""
         try:
             prompt = f"""
-Analyze the following website content and provide detailed information about:
+            You are an expert business analyst. Your job is to extract meaningful insights from company websites.
 
-1. What They Sell: Products, services, features, offerings, etc. (be comprehensive)
-2. Who They Target: Target audience, customer segments, industries, etc. (be detailed)
-3. Condensed Summary: A brief 3-4 sentence summary combining both aspects
+            Given the website content below, analyze and return the following:
 
-Website Content:
-{content[:4000]}...
+            1. "what_they_sell" — Summarize their core products, services, features, or business model.
+            2. "who_they_target" — Describe their main audience, demographics, industries, or customer types.
+            3. "condensed_summary" — Combine both insights into a short 3–4 sentence executive summary.
 
-Please format your response as JSON with keys: "what_they_sell", "who_they_target", "condensed_summary"
-"""
+            If you cannot find relevant information, explain *why*, but still return valid JSON.
+
+            Respond ONLY in JSON format like this:
+            {{
+            "what_they_sell": "...",
+            "who_they_target": "...",
+            "condensed_summary": "..."
+            }}
+
+            Content:
+            {content[:4000]}...
+            """
             
             response = self.llm_client.generate_response(prompt)
             
@@ -346,33 +355,32 @@ Please format your response as JSON with keys: "what_they_sell", "who_they_targe
         return matches[0] if matches else None
 
     def _parse_text_analysis(self, text: str) -> Dict[str, str]:
-        """Fallback text parsing if JSON parsing fails"""
-        lines = text.split('\n')
-        
-        what_they_sell = ""
-        who_they_target = ""
-        condensed_summary = ""
-        
-        current_section = None
-        
-        for line in lines:
-            line = line.strip()
-            if 'what they sell' in line.lower():
-                current_section = 'sell'
-            elif 'who they target' in line.lower():
-                current_section = 'target'
-            elif 'condensed summary' in line.lower() or 'summary' in line.lower():
-                current_section = 'summary'
-            elif line and current_section:
-                if current_section == 'sell':
-                    what_they_sell += line + " "
-                elif current_section == 'target':
-                    who_they_target += line + " "
-                elif current_section == 'summary':
-                    condensed_summary += line + " "
-        
-        return {
-            "what_they_sell": what_they_sell.strip() or "Unable to determine products/services",
-            "who_they_target": who_they_target.strip() or "Unable to determine target audience", 
-            "condensed_summary": condensed_summary.strip() or "Company analysis completed"
+        """Fallback if LLM doesn't return valid JSON"""
+        default_fallbacks = {
+            "what_they_sell": "Unable to determine products/services",
+            "who_they_target": "Unable to determine target audience",
+            "condensed_summary": "Company analysis completed."
         }
+
+        try:
+            # Try to find JSON-like blocks
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                possible_json = json_match.group(0)
+                return json.loads(possible_json)
+
+        except Exception:
+            pass  # fallback to regex parsing
+
+        # Loose parsing
+        sections = {
+            "what_they_sell": re.search(r"(what they sell|products|services)[^\n]*[:\-–]?\s*(.*?)(?=\n|$)", text, re.IGNORECASE),
+            "who_they_target": re.search(r"(who they target|audience|customers)[^\n]*[:\-–]?\s*(.*?)(?=\n|$)", text, re.IGNORECASE),
+            "condensed_summary": re.search(r"(summary|condensed)[^\n]*[:\-–]?\s*(.*?)(?=\n|$)", text, re.IGNORECASE)
+        }
+
+        result = {}
+        for key, match in sections.items():
+            result[key] = match.group(2).strip() if match else default_fallbacks[key]
+
+        return result
