@@ -6,6 +6,7 @@ import requests
 import streamlit as st
 from typing import Dict, List, Optional, Union
 from dataclasses import dataclass, asdict
+import unicodedata
 
 # Import your utilities
 from .session_helpers import update_session_state
@@ -220,8 +221,24 @@ Answer:
             return []
 
     def _send_to_n8n_webhook(self, research_data: CompanyResearch) -> bool:
+        """Send research data to n8n webhook, safely truncating and sanitizing long content fields"""
         try:
-            return self.n8n_webhook.send_data(asdict(research_data))
+            payload = asdict(research_data)
+
+            # Truncate and clean ScrapedContent to avoid Airtable API rejection
+            max_length = 10000
+            scraped = payload["scraped_content"][:max_length]
+            cleaned = unicodedata.normalize("NFKD", scraped).encode("ascii", "ignore").decode("ascii")
+            payload["ScrapedContent"] = cleaned  # Ensure proper Airtable field casing
+            del payload["scraped_content"]  # Remove original key
+
+            # Log info for debugging
+            print("Sending to webhook:")
+            print("ScrapedContent type:", type(payload["ScrapedContent"]))
+            print("ScrapedContent preview:", payload["ScrapedContent"][:300])
+
+            return self.n8n_webhook.send_data(payload)
+
         except Exception as e:
             print(f"Webhook error: {e}")
             return False
@@ -239,7 +256,7 @@ Answer:
             if match:
                 return match.group(1).strip().title()
         words = text.split()
-        if len(words) <= 4 and not any(word.lower() in ['please', 'can', 'you', 'research', 'analyze', 'tell', 'me', 'about', 'i', 'want', 'to']):
+        if len(words) <= 4 and not any(words.lower() in ['please', 'can', 'you', 'research', 'analyze', 'tell', 'me', 'about', 'i', 'want', 'to']):
             return text.title()
         return None
 
