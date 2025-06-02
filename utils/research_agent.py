@@ -229,13 +229,13 @@ Answer:
             max_length = 10000
             scraped = payload["scraped_content"][:max_length]
             cleaned = unicodedata.normalize("NFKD", scraped).encode("ascii", "ignore").decode("ascii")
-            payload["ScrapedContent"] = cleaned  # Ensure proper Airtable field casing
+            payload["clean_scraped_content"] = cleaned  # Ensure proper Airtable field casing
             del payload["scraped_content"]  # Remove original key
 
             # Log info for debugging
             print("Sending to webhook:")
-            print("ScrapedContent type:", type(payload["ScrapedContent"]))
-            print("ScrapedContent preview:", payload["ScrapedContent"][:300])
+            print("clean_scraped_content type:", type(payload["clean_scraped_content"]))
+            print("clean_scraped_content preview:", payload["clean_scraped_content"][:300])
 
             return self.n8n_webhook.send_data(payload)
 
