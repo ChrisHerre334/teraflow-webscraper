@@ -7,7 +7,7 @@ import re
 
 class WebScraper:
     """
-    Web scraping utility using FireCrawl API to scrape 10-15 relevant pages
+    Web scraping utility using FireCrawl API v1 to scrape 10-15 relevant pages
     from a company website and return clean, readable content.
     """
     
@@ -67,41 +67,44 @@ class WebScraper:
             'Content-Type': 'application/json'
         }
         
+        # Updated payload structure for v1 API
         payload = {
             'url': url,
-            'crawlerOptions': {
-                'limit': max_pages,
-                'includes': [
-                    '*/about*',
-                    '*/products*',
-                    '*/services*',
-                    '*/solutions*',
-                    '*/features*',
-                    '*/pricing*',
-                    '*/customers*',
-                    '*/industries*',
-                    '*/company*',
-                    '*/team*'
-                ],
-                'excludes': [
-                    '*/blog*',
-                    '*/news*',
-                    '*/careers*',
-                    '*/jobs*',
-                    '*/contact*',
-                    '*/support*',
-                    '*/help*',
-                    '*/faq*',
-                    '*/terms*',
-                    '*/privacy*',
-                    '*/legal*'
-                ]
-            },
-            'pageOptions': {
+            'limit': max_pages,
+            'scrapeOptions': {
+                'formats': ['markdown'],
                 'onlyMainContent': True,
-                'includeHtml': False,
-                'screenshot': False
-            }
+                'includeTags': [],
+                'excludeTags': ['nav', 'footer', 'header', 'aside'],
+                'removeBase64Images': True
+            },
+            'allowBackwardLinks': False,
+            'allowExternalLinks': False,
+            'includePaths': [
+                '/about*',
+                '/products*',
+                '/services*',
+                '/solutions*',
+                '/features*',
+                '/pricing*',
+                '/customers*',
+                '/industries*',
+                '/company*',
+                '/team*'
+            ],
+            'excludePaths': [
+                '/blog*',
+                '/news*',
+                '/careers*',
+                '/jobs*',
+                '/contact*',
+                '/support*',
+                '/help*',
+                '/faq*',
+                '/terms*',
+                '/privacy*',
+                '/legal*'
+            ]
         }
         
         try:
@@ -118,7 +121,7 @@ class WebScraper:
                 return None
             
             crawl_data = response.json()
-            job_id = crawl_data.get('jobId')
+            job_id = crawl_data.get('id')
             
             if not job_id:
                 print("No job ID returned from crawl start")
@@ -133,7 +136,7 @@ class WebScraper:
                 wait_time += 5
                 
                 status_response = requests.get(
-                    f"{self.base_url}/crawl/status/{job_id}",
+                    f"{self.base_url}/crawl/{job_id}",
                     headers=headers,
                     timeout=10
                 )
@@ -166,13 +169,14 @@ class WebScraper:
             'Content-Type': 'application/json'
         }
         
+        # Updated payload structure for v1 API
         payload = {
             'url': url,
-            'pageOptions': {
-                'onlyMainContent': True,
-                'includeHtml': False,
-                'screenshot': False
-            }
+            'formats': ['markdown'],
+            'onlyMainContent': True,
+            'includeTags': [],
+            'excludeTags': ['nav', 'footer', 'header', 'aside'],
+            'removeBase64Images': True
         }
         
         try:

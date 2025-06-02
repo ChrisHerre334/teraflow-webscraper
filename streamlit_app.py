@@ -92,7 +92,7 @@ for msg in st.session_state.chat_history:
             st.markdown(msg["content"])
 
 # Chat input
-if user_input := st.chat_input("What company would you like me to research?"):
+if user_input := st.chat_input("Talk to me..."):
     # Add user message to chat
     update_chat("user", user_input)
     
