@@ -2,8 +2,6 @@ import os
 import requests
 import time
 from typing import Optional, List, Dict
-from urllib.parse import urljoin, urlparse
-import re
 
 class WebScraper:
     """
