@@ -97,7 +97,24 @@ class ResearchAgent:
         return "Please provide a valid email address."
 
     def _handle_url_confirmation(self, user_input: str) -> str:
-        selected_url = next((url for url in st.session_state.candidate_urls if url.lower() in user_input.lower()), None)
+        # Gracefully handle malformed or empty candidate_urls
+        raw_urls = st.session_state.get("candidate_urls", [])
+
+        # Flatten if it's a list of lists
+        candidate_urls = []
+        for item in raw_urls:
+            if isinstance(item, str):
+                candidate_urls.append(item)
+            elif isinstance(item, list):
+                candidate_urls.extend([url for url in item if isinstance(url, str)])
+
+        if not candidate_urls:
+            return "Hmm, I don't seem to have any URLs to match yet. Try asking me to look up a company again."
+
+        # Try to match a URL from user input
+        selected_url = next((url for url in candidate_urls if url.lower() in user_input.lower()), None)
+
+        # Fallback to regex
         if not selected_url:
             matches = re.findall(r'https?://[^\s]+', user_input)
             selected_url = matches[0] if matches else None
@@ -106,7 +123,9 @@ class ResearchAgent:
             st.session_state.selected_url = selected_url
             st.session_state.agent_state = self.SCRAPING_WEBSITE
             return self._start_scraping_and_analysis()
+
         return "Please paste one of the URLs I provided, or enter a valid website."
+
 
     def _start_scraping_and_analysis(self) -> str:
         try:
