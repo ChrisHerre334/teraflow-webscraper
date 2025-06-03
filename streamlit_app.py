@@ -56,7 +56,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Main title
-st.markdown('<div class="main-header"><h1>🤖 AI Research Assistant</h1><p>Your intelligent company research companion</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🤖 AI Research Assistant</h1><h4>>> Your intelligent company research companion <<</h4><p>What company would you like me to research for you today?</p></div>', unsafe_allow_html=True)
 
 # Initialize session state
 init_session()
@@ -125,8 +125,3 @@ if user_input := st.chat_input("Talk to me..."):
                 error_msg = f"❌ An error occurred: {str(e)}"
                 update_chat("assistant", error_msg)
                 st.error(error_msg)
-
-# Optional: Show session state for debugging (remove in production)
-if st.checkbox("Show Debug Info"):
-    with st.expander("Session State"):
-        st.json(get_session_state())

@@ -171,6 +171,7 @@ Here's what I found about **{research_data.company_name}**:
 ---
 
 I've saved this to Airtable and emailed **{research_data.recipient_email}**.
+\n\nPlease feel free to ask me any further questions.
 """
             return "I had trouble analyzing the content. Try a different site or rephrase your query."
         except Exception as e:
